@@ -13,6 +13,7 @@ interface TermCardProps {
   term: SelectTerm;
   rank: number;
   showTrend?: boolean;
+  children?: React.ReactNode;
 }
 
 export function TermCard({ term, rank, showTrend }: TermCardProps) {
@@ -44,13 +45,15 @@ export function TermCard({ term, rank, showTrend }: TermCardProps) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
     >
-      <Card className="overflow-hidden bg-background/60 backdrop-blur-sm border-2 hover:border-primary/20 transition-colors">
+      <Card className="relative overflow-hidden bg-background/60 backdrop-blur-sm border-2 hover:border-primary/20 transition-colors">
         <CardContent className="p-6">
           <div className="flex items-start justify-between gap-4">
-            <div className="flex-shrink-0 w-12 h-12 flex items-center justify-center bg-primary/10 rounded-lg">
-              <span className="text-xl font-bold text-primary">#{rank}</span>
+            <div className="absolute left-4 top-4 w-10 h-10 rounded-full bg-primary/10 backdrop-blur-sm flex items-center justify-center">
+              <span className="text-base font-semibold text-primary">
+                #{rank}
+              </span>
             </div>
-            <div className="flex-grow">
+            <div className="flex-grow pl-16">
               <div className="flex items-start justify-between">
                 <h2 className="text-2xl font-bold text-foreground">
                   {term.term}

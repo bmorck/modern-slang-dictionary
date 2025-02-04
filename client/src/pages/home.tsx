@@ -1,102 +1,80 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TermCard } from "@/components/term-card";
-import type { SelectTerm } from "@db/schema";
-import { Search, Sparkles, ThumbsUp, ArrowUpIcon, ArrowRightIcon, ArrowDownIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
-
-function TrendIndicator({ score }: { score: number }) {
-  if (score >= 1) {
-    return (
-      <div className="flex items-center gap-1 text-green-500">
-        <ArrowUpIcon className="h-4 w-4" />
-        <span className="text-sm font-medium">Rising</span>
-      </div>
-    );
-  }
-  if (score <= -1) {
-    return (
-      <div className="flex items-center gap-1 text-red-500">
-        <ArrowDownIcon className="h-4 w-4" />
-        <span className="text-sm font-medium">Falling</span>
-      </div>
-    );
-  }
-  return (
-    <div className="flex items-center gap-1 text-yellow-500">
-      <ArrowRightIcon className="h-4 w-4" />
-      <span className="text-sm font-medium">Stable</span>
-    </div>
-  );
-}
+import { TrendIndicator } from "@/components/trend-indicator";
+import type { Term } from "@/lib/types";
 
 export default function Home() {
+  // State
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<"score" | "trending">("score");
+  const [page, setPage] = useState(1);
 
-  const { data: terms, isLoading } = useQuery<SelectTerm[]>({
-    queryKey: ["/api/terms", search, sortBy],
+  // Data fetching
+  const { data, isLoading } = useQuery<Term[]>({
+    queryKey: ["/api/terms", search, sortBy, page],
     queryFn: async () => {
-      const searchParams = new URLSearchParams();
-      if (search) {
-        searchParams.set("q", search);
-      }
-      searchParams.set("sort", sortBy);
+      const searchParams = new URLSearchParams({
+        ...(search && { q: search }),
+        sort: sortBy,
+        limit: "25",
+        offset: ((page - 1) * 25).toString(),
+      });
+
       const res = await fetch(`/api/terms?${searchParams.toString()}`);
       if (!res.ok) throw new Error("Failed to fetch terms");
       return res.json();
     },
   });
 
+  // Event handlers
+  const handleSortChange = (newSort: "score" | "trending") => {
+    setSortBy(newSort);
+    setPage(1);
+  };
+
   return (
-    <div className="min-h-[calc(100vh-3.5rem)] bg-gradient-to-b from-background via-background to-primary/5">
-      <div className="container max-w-4xl mx-auto px-4 py-12">
-        <div className="text-center space-y-6 mb-12">
-          <div className="space-y-2">
-            <h1 className="text-4xl font-bold text-foreground">
-              Modern Slang Dictionary
-            </h1>
-            <p className="text-lg text-muted-foreground">
-              Discover and learn today's language
-            </p>
-          </div>
-
-          <div className="max-w-md mx-auto">
-            <div className="relative mb-6">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                type="search"
-                placeholder="Search slang terms..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-10 h-11 bg-background/60 backdrop-blur-sm"
-              />
-            </div>
-
-            <div className="flex justify-center gap-3">
-              <Button
-                variant={sortBy === "score" ? "default" : "outline"}
-                onClick={() => setSortBy("score")}
-                size="sm"
-                className="gap-2"
-              >
-                <ThumbsUp className="h-4 w-4" />
-                Top Rated
-              </Button>
-              <Button
-                variant={sortBy === "trending" ? "default" : "outline"}
-                onClick={() => setSortBy("trending")}
-                size="sm"
-                className="gap-2"
-              >
-                <Sparkles className="h-4 w-4" />
-                Trending
-              </Button>
-            </div>
-          </div>
+    <div className="flex justify-center min-h-screen bg-background">
+      <div className="w-full max-w-4xl py-10 px-4 space-y-8">
+        {/* Header */}
+        <div className="space-y-4">
+          <h1 className="text-4xl font-bold text-center">Modern Slang Dictionary</h1>
+          <p className="text-xl text-center text-muted-foreground">
+            Find and share modern slang terms and their meanings
+          </p>
         </div>
 
+        {/* Search */}
+        <div className="flex justify-center">
+          <Input
+            type="search"
+            placeholder="Search terms..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="max-w-sm w-full"
+          />
+        </div>
+
+        {/* Sort Buttons */}
+        <div className="flex justify-center gap-4">
+          <Button
+            variant={sortBy === "score" ? "default" : "outline"}
+            onClick={() => handleSortChange("score")}
+          >
+            Top Rated
+          </Button>
+          <Button
+            variant={sortBy === "trending" ? "default" : "outline"}
+            onClick={() => handleSortChange("trending")}
+          >
+            Trending
+          </Button>
+        </div>
+
+        {/* Content */}
         {isLoading ? (
           <div className="space-y-6">
             {[...Array(3)].map((_, i) => (
@@ -106,7 +84,7 @@ export default function Home() {
               />
             ))}
           </div>
-        ) : terms?.length === 0 ? (
+        ) : !data?.length ? (
           <div className="text-center p-8 bg-background/60 backdrop-blur-sm rounded-lg border">
             <p className="text-lg text-muted-foreground">
               {search
@@ -116,11 +94,11 @@ export default function Home() {
           </div>
         ) : (
           <div className="space-y-6">
-            {terms?.map((term, index) => (
+            {data.map((term) => (
               <TermCard 
                 key={term.id} 
                 term={term} 
-                rank={index + 1}
+                rank={term.rank}
                 showTrend={sortBy === "trending"}
               >
                 {sortBy === "trending" && (
@@ -128,6 +106,33 @@ export default function Home() {
                 )}
               </TermCard>
             ))}
+          </div>
+        )}
+
+        {/* Pagination */}
+        {data?.length > 0 && (
+          <div className="flex justify-center gap-2 mt-8">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page === 1}
+            >
+              <ChevronLeft className="h-4 w-4 mr-1" />
+              Previous
+            </Button>
+            <div className="flex items-center gap-2 text-sm">
+              <span>Page {page}</span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(p => p + 1)}
+              disabled={data.length < 25}
+            >
+              Next
+              <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
           </div>
         )}
       </div>

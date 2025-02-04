@@ -2,7 +2,7 @@ import type { Express, Request } from "express";
 import { createServer, type Server } from "http";
 import { db } from "@db";
 import { terms, votes, moderators } from "@db/schema";
-import { eq, sql, desc, and, ilike } from "drizzle-orm";
+import { eq, sql, desc, and, ilike, or } from "drizzle-orm";
 import { z } from "zod";
 import { authenticateModerator, requireModerator, hashPassword, generateTestHash } from "./auth";
 import { insertTermSchema, loginSchema } from "@db/schema";
@@ -146,93 +146,48 @@ export function registerRoutes(app: Express): Server {
     try {
       const search = req.query.q?.toString() || "";
       const sortBy = req.query.sort?.toString() || "score";
+      const limit = parseInt(req.query.limit?.toString() || "25");
+      const offset = parseInt(req.query.offset?.toString() || "0");
 
-      console.log('Fetching terms with:', { search, sortBy });  // Debug log
+      // Create a CTE with properly aliased fields
+      const rankedTerms = db
+        .select({
+          id: terms.id,
+          term: terms.term,
+          definition: terms.definition,
+          example: terms.example,
+          createdAt: terms.createdAt,
+          score: terms.score,
+          isApproved: terms.isApproved,
+          moderatedAt: terms.moderatedAt,
+          moderatedBy: terms.moderatedBy,
+          moderationNote: terms.moderationNote,
+          trendingScore: terms.trendingScore,
+          rank: sql<number>`row_number() over (
+            order by ${sortBy === "trending" ? terms.trendingScore : terms.score} desc
+          )`.as('rank')
+        })
+        .from(terms)
+        .where(eq(terms.isApproved, true))
+        .as('ranked_terms');
 
-      // Update trending scores if needed
-      if (sortBy === "trending") {
-        console.log('Calculating trending scores...'); // Debug log
-        const recentTime = new Date();
-        recentTime.setHours(recentTime.getHours() - TRENDING_WINDOW_HOURS);
-
-        try {
-          // Calculate trending score based on recent votes
-          await db.execute(sql`
-            WITH recent_votes AS (
-              SELECT 
-                term_id,
-                COUNT(*) FILTER (WHERE value > 0) as recent_upvotes,
-                COUNT(*) FILTER (WHERE value < 0) as recent_downvotes,
-                COUNT(*) as total_votes
-              FROM votes
-              WHERE created_at >= ${recentTime}
-              GROUP BY term_id
-            )
-            UPDATE terms t
-            SET trending_score = COALESCE(
-              (
-                SELECT 
-                  CASE 
-                    WHEN total_votes = 0 THEN 0
-                    ELSE (recent_upvotes - recent_downvotes)::float / NULLIF(total_votes, 0)
-                  END
-                FROM recent_votes rv
-                WHERE rv.term_id = t.id
-              ), 0
-            )
-          `);
-          console.log('Trending scores updated successfully'); // Debug log
-        } catch (err) {
-          console.error('Error updating trending scores:', err);
-          throw err;
-        }
-      }
-
-      // Start building the query
-      const query = db
-        .select()
-        .from(terms);
-
-      // Build the where conditions
-      const conditions = [];
-
-      // Only show approved terms to regular users
-      if (!req.session.moderatorId) {
-        conditions.push(eq(terms.isApproved, true));
-      }
-
-      // Add search condition if search term is provided
+      // Then apply search filter and pagination
+      let searchConditions = [];
       if (search) {
-        const searchCondition = sql`(${terms.term} ILIKE ${`%${search}%`} OR ${
-          terms.definition
-        } ILIKE ${`%${search}%`})`;
-        
-        conditions.push(searchCondition);  // Don't include isApproved here
+        searchConditions.push(ilike(rankedTerms.term, `%${search}%`));
       }
 
-      // Apply conditions if any
-      if (conditions.length > 0) {
-        query.where(and(...conditions));  // All conditions will be combined with AND
-      }
-
-      console.log('Executing query...'); // Debug log
-      // Apply sorting
-      const results = await query.orderBy(
-        sortBy === "trending" ? desc(terms.trendingScore) : desc(terms.score)
-      );
-      console.log(`Found ${results.length} terms`); // Debug log
+      const results = await db
+        .select()
+        .from(rankedTerms)
+        .where(and(...searchConditions))
+        .limit(limit)
+        .offset(offset);
 
       res.json(results);
     } catch (error) {
-      console.error("Error fetching terms (detailed):", {
-        error,
-        message: error.message,
-        stack: error.stack
-      });
-      res.status(500).json({ 
-        message: "Error fetching terms",
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
+      console.error("Error fetching terms:", error);
+      res.status(500).json({ message: "Error fetching terms" });
     }
   });
 
